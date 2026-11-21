@@ -2,12 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>gesture-dj</title>
+    <title>Gesture DJ</title>
   </head>
   <body>
-    <div id="app"></div>
+    <main>
+      <h1>Gesture DJ — spike</h1>
+      <button id="start">Start camera</button>
+      <p id="status">Click start, then allow camera access</p>
+      <div class="stage">
+        <video id="cam" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+      </div>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
