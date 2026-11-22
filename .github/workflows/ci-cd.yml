@@ -41,6 +41,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
 
   docker:
     needs: test-build
@@ -57,4 +58,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/<your-github-username>/gesture-dj:latest
+          tags: ghcr.io/elly-02/gesture-dj:latest
