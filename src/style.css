@@ -35,3 +35,35 @@ canvas {
   transform: scaleX(-1);
   border-radius: 8px;
 }
+
+.slider {
+  position: absolute;
+  left: 82%;
+  width: 15%;
+  top: 15%;
+  height: 70%;
+  z-index: 2;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.slider.hovering {
+  border-color: #fac775;
+}
+
+.slider.grabbed {
+  border-color: #5dcaa5;
+  background: rgba(93, 202, 165, 0.15);
+}
+
+.knob {
+  position: absolute;
+  left: 10%;
+  width: 80%;
+  height: 10%;
+  top: 30%;
+  background: #eee;
+  border-radius: 6px;
+  transform: translateY(-50%);
+}

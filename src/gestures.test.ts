@@ -3,10 +3,12 @@ import {
   isOpenPalm,
   createHoldDetector,
   createSwipeDetector,
-  createPinchDetector,
   heightToVolume,
   smoothStep,
+  toScreenX,
+  createVolumeSlider,
   type Point,
+  type Zone,
 } from './gestures';
 
 function blankHand(): Point[] {
@@ -22,16 +24,7 @@ function palmHand(fingersUp: boolean): Point[] {
   return lm;
 }
 
-function pinchHand(ratio: number, otherFingersUp = true): Point[] {
-  const lm = blankHand();
-  lm[0] = { x: 0.5, y: 0.8 };
-  lm[9] = { x: 0.5, y: 0.5 };
-  lm[4] = { x: 0.4, y: 0.4 };
-  lm[8] = { x: 0.4 + 0.3 * ratio, y: 0.4 };
-  [10, 14, 18].forEach((i) => (lm[i] = { x: 0.5, y: 0.45 }));
-  [12, 16, 20].forEach((i) => (lm[i] = { x: 0.5, y: otherFingersUp ? 0.25 : 0.6 }));
-  return lm;
-}
+const ZONE: Zone = { xMin: 0.82, xMax: 0.97, yMin: 0.15, yMax: 0.85 };
 
 describe('isOpenPalm', () => {
   it('detects an open palm', () => expect(isOpenPalm(palmHand(true))).toBe(true));
@@ -101,34 +94,6 @@ describe('createSwipeDetector', () => {
   });
 });
 
-describe('createPinchDetector', () => {
-  it('detects a pinch with other fingers up', () => {
-    expect(createPinchDetector()(pinchHand(0.2))).toBe(true);
-  });
-
-  it('rejects an open hand', () => {
-    expect(createPinchDetector()(pinchHand(0.6))).toBe(false);
-  });
-
-  it('rejects a fist even when thumb and index are close', () => {
-    expect(createPinchDetector()(pinchHand(0.2, false))).toBe(false);
-  });
-
-  it('uses hysteresis to avoid flicker', () => {
-    const pinch = createPinchDetector(0.3, 0.45);
-    expect(pinch(pinchHand(0.2))).toBe(true);
-    expect(pinch(pinchHand(0.4))).toBe(true);
-    expect(pinch(pinchHand(0.5))).toBe(false);
-    expect(pinch(pinchHand(0.4))).toBe(false);
-  });
-
-  it('resets when the hand is lost', () => {
-    const pinch = createPinchDetector();
-    pinch(pinchHand(0.2));
-    expect(pinch(null)).toBe(false);
-  });
-});
-
 describe('heightToVolume', () => {
   it('maps top to 100% and bottom to 0%', () => {
     expect(heightToVolume(0.2)).toBeCloseTo(1);
@@ -145,5 +110,44 @@ describe('heightToVolume', () => {
 describe('smoothStep', () => {
   it('moves part of the way toward the target', () => {
     expect(smoothStep(0, 1, 0.3)).toBeCloseTo(0.3);
+  });
+});
+
+describe('toScreenX', () => {
+  it('mirrors raw camera x to screen x', () => {
+    expect(toScreenX(0.1)).toBeCloseTo(0.9);
+  });
+});
+
+describe('createVolumeSlider', () => {
+  it('stays idle without a hand', () => {
+    expect(createVolumeSlider(ZONE)(null, 0).state).toBe('idle');
+  });
+
+  it('ignores a fingertip outside the zone', () => {
+    expect(createVolumeSlider(ZONE)({ x: 0.5, y: 0.5 }, 0).state).toBe('idle');
+  });
+
+  it('hovers first, then grabs after the dwell time', () => {
+    const slider = createVolumeSlider(ZONE, 300);
+    expect(slider({ x: 0.1, y: 0.5 }, 0)).toEqual({ state: 'hovering', volume: null });
+    const grabbed = slider({ x: 0.1, y: 0.5 }, 300);
+    expect(grabbed.state).toBe('grabbed');
+    expect(grabbed.volume).toBeCloseTo(0.5);
+  });
+
+  it('keeps the grab inside the margin, but not before grabbing', () => {
+    const slider = createVolumeSlider(ZONE, 300, 0.05);
+    slider({ x: 0.1, y: 0.5 }, 0);
+    slider({ x: 0.1, y: 0.5 }, 300);
+    expect(slider({ x: 0.2, y: 0.5 }, 350).state).toBe('grabbed');
+    expect(createVolumeSlider(ZONE)({ x: 0.2, y: 0.5 }, 0).state).toBe('idle');
+  });
+
+  it('releases when the hand is lost', () => {
+    const slider = createVolumeSlider(ZONE, 300);
+    slider({ x: 0.1, y: 0.5 }, 0);
+    slider({ x: 0.1, y: 0.5 }, 300);
+    expect(slider(null, 350).state).toBe('idle');
   });
 });

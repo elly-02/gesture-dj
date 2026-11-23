@@ -1,10 +1,13 @@
 export type Point = { x: number; y: number; z?: number };
 export type SwipeDirection = 'left' | 'right';
+export type Zone = { xMin: number; xMax: number; yMin: number; yMax: number };
+export type SliderState = 'idle' | 'hovering' | 'grabbed';
 
 const TIPS = [8, 12, 16, 20];
 const PIPS = [6, 10, 14, 18];
 
-const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+/** Landmark x is raw camera space; the video is shown mirrored. */
+export const toScreenX = (rawX: number) => 1 - rawX;
 
 export function isOpenPalm(lm: Point[]): boolean {
   if (lm.length < 21) return false;
@@ -36,8 +39,8 @@ export function createHoldDetector(holdMs = 500, cooldownMs = 1500) {
 }
 
 /**
- * Landmark x is in raw camera space, but the video is shown mirrored.
- * Moving your hand to YOUR right makes x DECREASE, so dx < 0 = 'right'.
+ * Moving your hand to YOUR right makes raw x DECREASE (mirrored video),
+ * so dx < 0 = 'right'.
  */
 export function createSwipeDetector(minDistance = 0.3, windowMs = 400, cooldownMs = 1000) {
   let history: { t: number; x: number }[] = [];
@@ -62,30 +65,6 @@ export function createSwipeDetector(minDistance = 0.3, windowMs = 400, cooldownM
   };
 }
 
-export function pinchRatio(lm: Point[]): number {
-  const handSize = dist(lm[0], lm[9]);
-  if (handSize === 0) return Infinity;
-  return dist(lm[4], lm[8]) / handSize;
-}
-
-function otherFingersUp(lm: Point[]): boolean {
-  return [12, 16, 20].every((tip, i) => lm[tip].y < lm[[10, 14, 18][i]].y);
-}
-
-export function createPinchDetector(enter = 0.3, exit = 0.45) {
-  let pinched = false;
-
-  return (lm: Point[] | null): boolean => {
-    if (!lm || lm.length < 21 || !otherFingersUp(lm)) {
-      pinched = false;
-      return false;
-    }
-    const r = pinchRatio(lm);
-    pinched = pinched ? r < exit : r < enter;
-    return pinched;
-  };
-}
-
 export function heightToVolume(y: number, top = 0.2, bottom = 0.8): number {
   const v = (bottom - y) / (bottom - top);
   return Math.min(1, Math.max(0, v));
@@ -93,4 +72,38 @@ export function heightToVolume(y: number, top = 0.2, bottom = 0.8): number {
 
 export function smoothStep(current: number, target: number, alpha = 0.3): number {
   return current + alpha * (target - current);
+}
+
+export function inZone(x: number, y: number, z: Zone, margin = 0): boolean {
+  return (
+    x >= z.xMin - margin &&
+    x <= z.xMax + margin &&
+    y >= z.yMin - margin &&
+    y <= z.yMax + margin
+  );
+}
+
+export function createVolumeSlider(zone: Zone, dwellMs = 300, margin = 0.05) {
+  let state: SliderState = 'idle';
+  let since = 0;
+
+  return (tip: Point | null, now: number): { state: SliderState; volume: number | null } => {
+    if (!tip) {
+      state = 'idle';
+      return { state, volume: null };
+    }
+    const inside = inZone(toScreenX(tip.x), tip.y, zone, state === 'grabbed' ? margin : 0);
+    if (!inside) {
+      state = 'idle';
+      return { state, volume: null };
+    }
+    if (state === 'idle') {
+      state = 'hovering';
+      since = now;
+    }
+    if (state === 'hovering' && now - since >= dwellMs) state = 'grabbed';
+
+    const volume = state === 'grabbed' ? heightToVolume(tip.y, zone.yMin, zone.yMax) : null;
+    return { state, volume };
+  };
 }
