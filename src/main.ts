@@ -1,6 +1,13 @@
 import './style.css';
 import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
-import { isOpenPalm, createHoldDetector } from './gestures';
+import {
+  isOpenPalm,
+  createHoldDetector,
+  createSwipeDetector,
+  createPinchDetector,
+  heightToVolume,
+  smoothStep,
+} from './gestures';
 import { TonePlayer } from './audio';
 
 const video = document.querySelector<HTMLVideoElement>('#cam')!;
@@ -14,9 +21,14 @@ const startBtn = document.querySelector<HTMLButtonElement>('#start')!;
 const base = import.meta.env.BASE_URL;
 const player = new TonePlayer();
 const palmHold = createHoldDetector();
+const detectSwipe = createSwipeDetector();
+const detectPinch = createPinchDetector();
+const PALM_BLOCK_AFTER_SWIPE_MS = 800;
 
 let landmarker: HandLandmarker;
 let lastVideoTime = -1;
+let lastSwipeAt = -Infinity;
+let lastGesture = '—';
 let delegate: 'GPU' | 'CPU' = 'CPU';
 let frames = 0;
 let fps = 0;
@@ -36,8 +48,7 @@ function shouldUseGpu(): boolean {
   const params = new URLSearchParams(location.search);
   if (params.has('gpu')) return true;
   if (params.has('cpu')) return false;
-  const isTouchDevice = matchMedia('(pointer: coarse)').matches;
-  return !isTouchDevice;
+  return !matchMedia('(pointer: coarse)').matches;
 }
 
 function syncSize() {
@@ -66,7 +77,6 @@ async function setup() {
   await player.init();
 
   const vision = await FilesetResolver.forVisionTasks(`${base}mediapipe-wasm`);
-
   try {
     if (!shouldUseGpu()) throw new Error('Using CPU');
     landmarker = await HandLandmarker.createFromOptions(vision, makeOptions('GPU'));
@@ -83,7 +93,7 @@ async function setup() {
   await video.play();
   syncSize();
 
-  status.textContent = 'Hold an open palm for half a second to play/pause';
+  status.textContent = 'Palm = play/pause · Swipe = change track · Pinch + move = volume';
   requestAnimationFrame(loop);
 }
 
@@ -95,7 +105,7 @@ function loop() {
     syncSize();
 
     const result = landmarker.detectForVideo(video, now);
-    const hand = result.landmarks[0];
+    const hand = result.landmarks[0] ?? null;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (hand) {
@@ -103,14 +113,31 @@ function loop() {
       draw.drawLandmarks(hand, { color: '#F0997B', radius: 3 });
     }
 
-    const palm = hand ? isOpenPalm(hand) : false;
-    if (palmHold(palm, now)) player.toggle();
+    const pinched = detectPinch(hand);
+    if (pinched && hand) {
+      const pinchY = (hand[4].y + hand[8].y) / 2;
+      player.setVolume(smoothStep(player.volume, heightToVolume(pinchY)));
+      lastGesture = 'Pinch';
+    }
+
+    const swipe = detectSwipe(hand && !pinched ? hand[0].x : null, now);
+    if (swipe) {
+      player.step(swipe === 'right' ? 1 : -1);
+      lastSwipeAt = now;
+      lastGesture = `Swipe ${swipe}`;
+    }
+
+    const palmAllowed = !pinched && now - lastSwipeAt > PALM_BLOCK_AFTER_SWIPE_MS;
+    const palm = hand && palmAllowed ? isOpenPalm(hand) : false;
+    if (palmHold(palm, now)) {
+      player.toggle();
+      lastGesture = 'Palm';
+    }
 
     updateFps(now);
-    const state = !hand ? 'No hand' : palm ? 'Open palm' : 'Hand';
     status.textContent =
-      `${state} · ${player.playing ? 'Playing' : 'Paused'} · ` +
-      `${delegate} · ${video.videoWidth}×${video.videoHeight} · ${fps} fps`;
+      `${hand ? lastGesture : 'No hand'} · ${player.playing ? 'Playing' : 'Paused'} · ` +
+      `Track ${player.track + 1} · Vol ${Math.round(player.volume * 100)}% · ${delegate} · ${fps} fps`;
   }
 
   requestAnimationFrame(loop);
