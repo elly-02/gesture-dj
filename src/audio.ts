@@ -9,6 +9,7 @@ export class TonePlayer {
   track = 0;
 
   async init() {
+    if (this.ctx) return;
     this.ctx = new AudioContext();
     this.gain = this.ctx.createGain();
     this.gain.gain.value = 0;
@@ -27,6 +28,12 @@ export class TonePlayer {
 
   toggle() {
     this.playing = !this.playing;
+    this.applyGain();
+  }
+
+  pause() {
+    if (!this.playing) return;
+    this.playing = false;
     this.applyGain();
   }
 

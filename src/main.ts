@@ -19,6 +19,7 @@ const ctx = canvas.getContext('2d')!;
 const draw = new DrawingUtils(ctx);
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
 const startBtn = document.querySelector<HTMLButtonElement>('#start')!;
+const stopBtn = document.querySelector<HTMLButtonElement>('#stop')!;
 
 const base = import.meta.env.BASE_URL;
 const player = new TonePlayer();
@@ -29,8 +30,11 @@ const detectSwipe = createSwipeDetector();
 const VOLUME_ZONE: Zone = { xMin: 0.82, xMax: 0.97, yMin: 0.15, yMax: 0.85 };
 const updateSlider = createVolumeSlider(VOLUME_ZONE);
 const PALM_BLOCK_AFTER_SWIPE_MS = 800;
+const HINT = 'Palm = play/pause · Swipe = change track · Hold fingertip on the slider = volume';
 
-let landmarker: HandLandmarker;
+let landmarker: HandLandmarker | null = null;
+let stream: MediaStream | null = null;
+let rafId = 0;
 let lastVideoTime = -1;
 let lastSwipeAt = -Infinity;
 let lastGesture = '—';
@@ -81,11 +85,8 @@ function renderSlider(state: string) {
   knobEl.style.top = `${(1 - player.volume) * 100}%`;
 }
 
-async function setup() {
-  startBtn.disabled = true;
-  status.textContent = 'Loading model…';
-  await player.init();
-
+async function loadModel() {
+  if (landmarker) return;
   const vision = await FilesetResolver.forVisionTasks(`${base}mediapipe-wasm`);
   try {
     if (!shouldUseGpu()) throw new Error('Using CPU');
@@ -95,20 +96,50 @@ async function setup() {
     landmarker = await HandLandmarker.createFromOptions(vision, makeOptions('CPU'));
     delegate = 'CPU';
   }
+}
 
-  const stream = await navigator.mediaDevices.getUserMedia({
+async function startCamera() {
+  startBtn.disabled = true;
+  status.textContent = 'Loading…';
+
+  await player.init();
+  await loadModel();
+
+  stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
   });
   video.srcObject = stream;
   await video.play();
+
+  lastVideoTime = -1;
   syncSize();
   renderSlider('idle');
+  stopBtn.disabled = false;
+  status.textContent = HINT;
+  rafId = requestAnimationFrame(loop);
+}
 
-  status.textContent = 'Palm = play/pause · Swipe = change track · Hold fingertip on the slider = volume';
-  requestAnimationFrame(loop);
+function stopCamera() {
+  cancelAnimationFrame(rafId);
+  stream?.getTracks().forEach((track) => track.stop());
+  stream = null;
+  video.srcObject = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const now = performance.now();
+  updateSlider(null, now);
+  detectSwipe(null, now);
+  palmHold(false, now);
+  renderSlider('idle');
+  player.pause();
+
+  stopBtn.disabled = true;
+  startBtn.disabled = false;
+  status.textContent = 'Camera off. Click start to turn it back on.';
 }
 
 function loop() {
+  if (!stream || !landmarker) return;
   const now = performance.now();
 
   if (video.currentTime !== lastVideoTime) {
@@ -152,12 +183,15 @@ function loop() {
       `Track ${player.track + 1} · Vol ${Math.round(player.volume * 100)}% · ${delegate} · ${fps} fps`;
   }
 
-  requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
 }
 
 startBtn.addEventListener('click', () => {
-  setup().catch((err: Error) => {
+  startCamera().catch((err: Error) => {
     status.textContent = `Error: ${err.message}`;
+    stopBtn.disabled = true;
     startBtn.disabled = false;
   });
 });
+
+stopBtn.addEventListener('click', stopCamera);

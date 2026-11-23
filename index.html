@@ -8,7 +8,10 @@
   <body>
     <main>
       <h1>Gesture DJ — spike</h1>
-      <button id="start">Start camera</button>
+      <div class="controls">
+        <button id="start">Start camera</button>
+        <button id="stop" disabled>Stop camera</button>
+      </div>
       <p id="status">Click start, then allow camera access</p>
       <div class="stage">
         <video id="cam" playsinline muted></video>
